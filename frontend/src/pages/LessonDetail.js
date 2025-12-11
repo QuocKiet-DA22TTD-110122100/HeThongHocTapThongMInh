@@ -2,14 +2,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Container, Typography, Box, Card, CardContent, Button, AppBar, Toolbar,
-  IconButton, Radio, RadioGroup, FormControlLabel, FormControl, Alert, Divider,
+  IconButton, Radio, RadioGroup, FormControlLabel, FormControl, Divider,
   LinearProgress, Chip, Grid, Paper, Dialog, DialogTitle, DialogContent, DialogActions
 } from '@mui/material';
 import { 
-  ArrowBack, CheckCircle, Cancel, Timer, NavigateNext, NavigateBefore,
-  Quiz, EmojiEvents, School
+  ArrowBack, CheckCircle, Timer, NavigateNext, NavigateBefore,
+  Quiz, EmojiEvents, School, AccessTime, Star
 } from '@mui/icons-material';
 import { lessonAPI, exerciseAPI, progressAPI } from '../services/api';
+import { EXAM_TYPES, getQuestionsForExam, calculateScore, getGrade } from '../services/questionBank';
 
 function LessonDetail() {
   const { id } = useParams();
@@ -17,14 +18,18 @@ function LessonDetail() {
   
   // Lesson state
   const [lesson, setLesson] = useState(null);
-  const [exercises, setExercises] = useState([]);
-  const [exerciseInfo, setExerciseInfo] = useState(null);
+  const [allExercises, setAllExercises] = useState([]); // Tất cả câu hỏi có sẵn
+  const [exercises, setExercises] = useState([]); // Câu hỏi cho bài kiểm tra hiện tại
+  
+  // Exam type selection
+  const [showExamSelection, setShowExamSelection] = useState(false);
+  const [selectedExamType, setSelectedExamType] = useState(null);
   
   // Exercise state
   const [showExercises, setShowExercises] = useState(false);
   const [currentExercise, setCurrentExercise] = useState(0);
   const [answers, setAnswers] = useState({});
-  const [startTime] = useState(Date.now());
+  const [startTime, setStartTime] = useState(null);
   
   // Timer state
   const [timeLeft, setTimeLeft] = useState(null);
@@ -33,6 +38,46 @@ function LessonDetail() {
   const [showResult, setShowResult] = useState(false);
   const [result, setResult] = useState(null);
   const [showDetailDialog, setShowDetailDialog] = useState(false);
+
+  // Các loại bài kiểm tra
+  const examTypes = [
+    { 
+      key: 'PRACTICE', 
+      name: '📝 Luyện tập', 
+      questions: 10, 
+      time: 10, 
+      points: 1,
+      description: '10 câu - 10 phút - 1đ/câu',
+      color: '#4caf50'
+    },
+    { 
+      key: 'QUIZ_15', 
+      name: '📋 Kiểm tra 15 phút', 
+      questions: 20, 
+      time: 15, 
+      points: 0.5,
+      description: '20 câu - 15 phút - 0.5đ/câu',
+      color: '#2196f3'
+    },
+    { 
+      key: 'MIDTERM', 
+      name: '📚 Giữa kỳ', 
+      questions: 40, 
+      time: 45, 
+      points: 0.25,
+      description: '40 câu - 45 phút - 0.25đ/câu',
+      color: '#ff9800'
+    },
+    { 
+      key: 'FINAL', 
+      name: '🎓 Học kỳ', 
+      questions: 50, 
+      time: 60, 
+      points: 0.2,
+      description: '50 câu - 60 phút - 0.2đ/câu',
+      color: '#f44336'
+    }
+  ];
 
   useEffect(() => {
     loadLesson();
@@ -58,21 +103,46 @@ function LessonDetail() {
     try {
       const response = await lessonAPI.getLesson(id);
       setLesson(response.data.lesson);
-      setExercises(response.data.exercises || []);
-      setExerciseInfo(response.data.exerciseInfo || {
-        totalQuestions: response.data.exercises?.length || 0,
-        pointPerQuestion: 1,
-        maxScore: 10,
-        timeLimit: 10
-      });
+      setAllExercises(response.data.exercises || []);
     } catch (error) {
       console.error('Error loading lesson:', error);
     }
   };
 
-  const handleStartExercises = () => {
+  const handleShowExamSelection = () => {
+    setShowExamSelection(true);
+  };
+
+  const handleSelectExamType = (examType) => {
+    setSelectedExamType(examType);
+    
+    // Lấy câu hỏi theo loại bài kiểm tra
+    // Map bài học với môn học
+    const lessonToSubject = {
+      1: 'AI_ML', 2: 'AI_ML', 3: 'AI_ML', 4: 'AI_ML', 5: 'AI_ML'
+    };
+    const subjectCode = lessonToSubject[parseInt(id)] || 'AI_ML';
+    
+    // Lấy câu hỏi từ ngân hàng
+    const questions = getQuestionsForExam(examType.key, subjectCode);
+    
+    // Format câu hỏi
+    const formattedQuestions = questions.map((q, index) => ({
+      id: q.id,
+      question: q.question,
+      type: 'multiple_choice',
+      options: q.options,
+      difficulty: q.difficulty,
+      questionNumber: index + 1
+    }));
+    
+    setExercises(formattedQuestions);
+    setShowExamSelection(false);
     setShowExercises(true);
-    setTimeLeft((exerciseInfo?.timeLimit || 10) * 60); // Convert to seconds
+    setStartTime(Date.now());
+    setTimeLeft(examType.time * 60);
+    setAnswers({});
+    setCurrentExercise(0);
     updateProgress('in_progress', 50);
   };
 
@@ -100,6 +170,8 @@ function LessonDetail() {
   };
 
   const handleSubmitAll = useCallback(async () => {
+    if (!selectedExamType) return;
+    
     const timeSpent = Math.floor((Date.now() - startTime) / 1000);
     
     // Format answers for submission
@@ -112,7 +184,8 @@ function LessonDetail() {
       const response = await exerciseAPI.submitAll({
         lesson_id: parseInt(id),
         answers: formattedAnswers,
-        time_taken: timeSpent
+        time_taken: timeSpent,
+        examType: selectedExamType.key
       });
       
       setResult(response.data);
@@ -121,10 +194,10 @@ function LessonDetail() {
     } catch (error) {
       console.error('Error submitting exercises:', error);
     }
-  }, [exercises, answers, id, startTime]);
+  }, [exercises, answers, id, startTime, selectedExamType]);
 
   const updateProgress = async (status, completion) => {
-    const timeSpent = Math.floor((Date.now() - startTime) / 60000);
+    const timeSpent = startTime ? Math.floor((Date.now() - startTime) / 60000) : 0;
     try {
       await progressAPI.update({
         lesson_id: parseInt(id),
@@ -147,11 +220,104 @@ function LessonDetail() {
     return Object.keys(answers).filter(key => answers[key]).length;
   };
 
+  const handleBackToLesson = () => {
+    setShowExercises(false);
+    setShowExamSelection(false);
+    setShowResult(false);
+    setSelectedExamType(null);
+    setExercises([]);
+    setAnswers({});
+    setCurrentExercise(0);
+    setTimeLeft(null);
+    setResult(null);
+  };
+
   if (!lesson) {
     return (
       <Container sx={{ mt: 4, textAlign: 'center' }}>
         <Typography>Đang tải...</Typography>
       </Container>
+    );
+  }
+
+  // Show exam type selection
+  if (showExamSelection) {
+    return (
+      <>
+        <AppBar position="static" sx={{ background: 'linear-gradient(45deg, #667eea 30%, #764ba2 90%)' }}>
+          <Toolbar>
+            <IconButton edge="start" color="inherit" onClick={() => setShowExamSelection(false)}>
+              <ArrowBack />
+            </IconButton>
+            <Typography variant="h6" sx={{ flexGrow: 1 }}>
+              Chọn loại bài kiểm tra
+            </Typography>
+          </Toolbar>
+        </AppBar>
+
+        <Container maxWidth="md" sx={{ mt: 4, mb: 4 }}>
+          <Typography variant="h5" gutterBottom textAlign="center" fontWeight="bold">
+            📝 Chọn loại bài kiểm tra cho: {lesson.title}
+          </Typography>
+          <Typography variant="body1" color="text.secondary" textAlign="center" sx={{ mb: 4 }}>
+            Thang điểm 10 cho tất cả loại bài kiểm tra
+          </Typography>
+
+          <Grid container spacing={3}>
+            {examTypes.map((exam) => (
+              <Grid item xs={12} sm={6} key={exam.key}>
+                <Card 
+                  sx={{ 
+                    cursor: 'pointer',
+                    transition: 'all 0.3s',
+                    border: '2px solid transparent',
+                    '&:hover': { 
+                      transform: 'translateY(-5px)',
+                      boxShadow: 6,
+                      borderColor: exam.color
+                    }
+                  }}
+                  onClick={() => handleSelectExamType(exam)}
+                >
+                  <CardContent sx={{ textAlign: 'center', p: 3 }}>
+                    <Typography variant="h4" sx={{ mb: 2 }}>
+                      {exam.name.split(' ')[0]}
+                    </Typography>
+                    <Typography variant="h6" fontWeight="bold" gutterBottom>
+                      {exam.name.substring(2)}
+                    </Typography>
+                    <Divider sx={{ my: 2 }} />
+                    <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, flexWrap: 'wrap' }}>
+                      <Chip 
+                        icon={<Quiz />} 
+                        label={`${exam.questions} câu`} 
+                        size="small"
+                        sx={{ bgcolor: exam.color, color: 'white' }}
+                      />
+                      <Chip 
+                        icon={<AccessTime />} 
+                        label={`${exam.time} phút`} 
+                        size="small"
+                        variant="outlined"
+                      />
+                    </Box>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                      {exam.points} điểm/câu
+                    </Typography>
+                    <Button 
+                      variant="contained" 
+                      fullWidth 
+                      sx={{ mt: 2, bgcolor: exam.color }}
+                    >
+                      Bắt đầu
+                    </Button>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+        </Container>
+      </>
     );
   }
 
@@ -191,44 +357,41 @@ function LessonDetail() {
                 variant="body1" 
                 sx={{ 
                   whiteSpace: 'pre-wrap',
-                  lineHeight: 1.8,
-                  '& h1, & h2, & h3': { mt: 3, mb: 2 }
+                  lineHeight: 1.8
                 }}
               >
                 {lesson.content || 'Nội dung bài học sẽ được cập nhật sớm.'}
               </Typography>
               
-              {exercises.length > 0 && (
-                <Box sx={{ mt: 4, p: 3, bgcolor: 'primary.light', borderRadius: 2, color: 'white' }}>
-                  <Typography variant="h6" gutterBottom>
-                    📝 Bài tập củng cố
-                  </Typography>
-                  <Typography variant="body2" sx={{ mb: 2 }}>
-                    • Số câu hỏi: {exerciseInfo?.totalQuestions || exercises.length} câu
-                  </Typography>
-                  <Typography variant="body2" sx={{ mb: 2 }}>
-                    • Thời gian: {exerciseInfo?.timeLimit || 10} phút
-                  </Typography>
-                  <Typography variant="body2" sx={{ mb: 2 }}>
-                    • Thang điểm: {exerciseInfo?.maxScore || 10} điểm
-                  </Typography>
-                  <Button
-                    variant="contained"
-                    size="large"
-                    fullWidth
-                    onClick={handleStartExercises}
-                    sx={{ 
-                      mt: 2, 
-                      bgcolor: 'white', 
-                      color: 'primary.main',
-                      '&:hover': { bgcolor: 'grey.100' }
-                    }}
-                    startIcon={<Quiz />}
-                  >
-                    Bắt đầu làm bài tập
-                  </Button>
-                </Box>
-              )}
+              <Box sx={{ mt: 4, p: 3, bgcolor: 'primary.light', borderRadius: 2, color: 'white' }}>
+                <Typography variant="h6" gutterBottom>
+                  📝 Bài tập củng cố
+                </Typography>
+                <Typography variant="body2" sx={{ mb: 2 }}>
+                  Chọn loại bài kiểm tra phù hợp với nhu cầu của bạn:
+                </Typography>
+                <Grid container spacing={1} sx={{ mb: 2 }}>
+                  <Grid item xs={6}>• Luyện tập: 10 câu - 10 phút</Grid>
+                  <Grid item xs={6}>• Kiểm tra 15 phút: 20 câu</Grid>
+                  <Grid item xs={6}>• Giữa kỳ: 40 câu - 45 phút</Grid>
+                  <Grid item xs={6}>• Học kỳ: 50 câu - 60 phút</Grid>
+                </Grid>
+                <Button
+                  variant="contained"
+                  size="large"
+                  fullWidth
+                  onClick={handleShowExamSelection}
+                  sx={{ 
+                    mt: 2, 
+                    bgcolor: 'white', 
+                    color: 'primary.main',
+                    '&:hover': { bgcolor: 'grey.100' }
+                  }}
+                  startIcon={<Quiz />}
+                >
+                  Chọn loại bài kiểm tra
+                </Button>
+              </Box>
             </CardContent>
           </Card>
         </Container>
@@ -243,7 +406,7 @@ function LessonDetail() {
         <AppBar position="static" sx={{ background: 'linear-gradient(45deg, #667eea 30%, #764ba2 90%)' }}>
           <Toolbar>
             <Typography variant="h6" sx={{ flexGrow: 1 }}>
-              Kết quả bài tập - {lesson.title}
+              Kết quả - {selectedExamType?.name || 'Bài tập'}
             </Typography>
           </Toolbar>
         </AppBar>
@@ -263,6 +426,10 @@ function LessonDetail() {
               color={result.gradeColor} 
               sx={{ fontSize: 18, py: 2, px: 3, mb: 3 }}
             />
+
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
+              {selectedExamType?.name} - {selectedExamType?.questions} câu
+            </Typography>
             
             <Grid container spacing={2} sx={{ mt: 3, mb: 4 }}>
               <Grid item xs={4}>
@@ -285,12 +452,19 @@ function LessonDetail() {
               </Grid>
             </Grid>
 
-            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
+            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
               <Button 
                 variant="outlined" 
                 onClick={() => setShowDetailDialog(true)}
               >
                 Xem chi tiết
+              </Button>
+              <Button 
+                variant="contained"
+                color="secondary" 
+                onClick={handleBackToLesson}
+              >
+                Làm lại
               </Button>
               <Button 
                 variant="contained" 
@@ -310,7 +484,7 @@ function LessonDetail() {
           maxWidth="md"
           fullWidth
         >
-          <DialogTitle>Chi tiết kết quả</DialogTitle>
+          <DialogTitle>Chi tiết kết quả - {selectedExamType?.name}</DialogTitle>
           <DialogContent dividers>
             {result.detailedResults?.map((item, index) => (
               <Box 
@@ -354,11 +528,11 @@ function LessonDetail() {
     <>
       <AppBar position="static" sx={{ background: 'linear-gradient(45deg, #667eea 30%, #764ba2 90%)' }}>
         <Toolbar>
-          <IconButton edge="start" color="inherit" onClick={() => setShowExercises(false)}>
+          <IconButton edge="start" color="inherit" onClick={handleBackToLesson}>
             <ArrowBack />
           </IconButton>
           <Typography variant="h6" sx={{ flexGrow: 1 }}>
-            Bài tập - {lesson.title}
+            {selectedExamType?.name || 'Bài tập'} - {lesson.title}
           </Typography>
           <Chip 
             icon={<Timer />}
@@ -395,7 +569,7 @@ function LessonDetail() {
               }
               variant={index === currentExercise ? 'filled' : 'outlined'}
               sx={{ 
-                minWidth: 40,
+                minWidth: 36,
                 cursor: 'pointer',
                 fontWeight: index === currentExercise ? 'bold' : 'normal'
               }}
@@ -417,10 +591,10 @@ function LessonDetail() {
         <Card sx={{ borderRadius: 3, boxShadow: 3 }}>
           <CardContent sx={{ p: 4 }}>
             <Typography variant="h6" gutterBottom fontWeight="bold">
-              Câu {currentExercise + 1}: {exercise.question}
+              Câu {currentExercise + 1}: {exercise?.question}
             </Typography>
 
-            {exercise.type === 'multiple_choice' && exercise.options && (
+            {exercise?.type === 'multiple_choice' && exercise?.options && (
               <FormControl component="fieldset" fullWidth sx={{ mt: 3 }}>
                 <RadioGroup 
                   value={answers[exercise.id] || ''} 

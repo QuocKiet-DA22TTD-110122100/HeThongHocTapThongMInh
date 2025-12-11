@@ -627,6 +627,18 @@ export const mockExerciseAPI = {
     await delay(800);
     
     const answers = data.answers || [];
+    const examType = data.examType || 'PRACTICE';
+    
+    // Cấu hình điểm theo loại bài kiểm tra
+    const examConfig = {
+      'PRACTICE': { questionCount: 10, pointPerQuestion: 1 },      // 10 câu x 1đ = 10đ
+      'QUIZ_15': { questionCount: 20, pointPerQuestion: 0.5 },     // 20 câu x 0.5đ = 10đ
+      'MIDTERM': { questionCount: 40, pointPerQuestion: 0.25 },    // 40 câu x 0.25đ = 10đ
+      'FINAL': { questionCount: 50, pointPerQuestion: 0.2 }        // 50 câu x 0.2đ = 10đ
+    };
+    
+    const config = examConfig[examType] || examConfig['PRACTICE'];
+    
     let correctCount = 0;
     let wrongCount = 0;
     const detailedResults = [];
@@ -640,7 +652,7 @@ export const mockExerciseAPI = {
         
         if (isCorrect) {
           correctCount++;
-        } else {
+        } else if (ans.answer) {
           wrongCount++;
         }
         
@@ -656,9 +668,8 @@ export const mockExerciseAPI = {
       }
     });
     
-    // Tính điểm theo thang 10
-    const totalQuestions = answers.length || 10;
-    const score = Math.round((correctCount / totalQuestions) * 10 * 10) / 10;
+    // Tính điểm theo thang 10 với điểm/câu tương ứng
+    const score = Math.round(correctCount * config.pointPerQuestion * 10) / 10;
     
     // Xếp loại
     let grade = 'Yếu';
@@ -676,7 +687,9 @@ export const mockExerciseAPI = {
         maxScore: 10,
         correctCount,
         wrongCount,
-        totalQuestions,
+        totalQuestions: answers.length,
+        pointPerQuestion: config.pointPerQuestion,
+        examType,
         grade,
         gradeColor,
         gradeEmoji,
