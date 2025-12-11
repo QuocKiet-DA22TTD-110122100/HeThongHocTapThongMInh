@@ -1,6 +1,6 @@
 // Mock API cho demo - Dữ liệu từ Database QuanLyHeThongHocTap
 
-import { EXAM_TYPES, calculateScore, getGrade, getQuestionsForExam, questionBankAI } from './questionBank';
+import { SUBJECTS, EXAM_TYPES, calculateScore, getGrade, getQuestionsForExam, allQuestions } from './questionBank';
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -163,12 +163,14 @@ export const mockAssessmentAPI = {
   },
 
   // Bắt đầu bài kiểm tra
-  start: async (subjectId, examType = 'QUIZ_15') => {
+  start: async (subjectCode, examType = 'QUIZ_15') => {
     await delay(500);
     
-    // Lấy câu hỏi từ ngân hàng câu hỏi theo loại bài kiểm tra
+    // Lấy câu hỏi từ ngân hàng câu hỏi theo môn học và loại bài kiểm tra
     const config = EXAM_TYPES[examType] || EXAM_TYPES.QUIZ_15;
-    const questions = getQuestionsForExam(examType);
+    // subjectCode có thể là số (id) hoặc string (code)
+    const subjectCodeStr = typeof subjectCode === 'number' ? null : subjectCode;
+    const questions = getQuestionsForExam(examType, subjectCodeStr);
     
     // Format câu hỏi cho frontend
     const formattedQuestions = questions.map((q, index) => ({
@@ -177,9 +179,12 @@ export const mockAssessmentAPI = {
       type: 'multiple_choice',
       options: q.options,
       difficulty: q.difficulty,
-      topic: q.topic,
+      topic: q.subject || q.topic,
       questionNumber: index + 1
     }));
+
+    // Tìm tên môn học
+    const subjectInfo = Object.values(SUBJECTS).find(s => s.code === subjectCodeStr);
 
     return {
       data: {
@@ -190,7 +195,8 @@ export const mockAssessmentAPI = {
           questionCount: config.questionCount,
           timeLimit: config.timeLimit,
           pointPerQuestion: config.pointPerQuestion,
-          description: config.description
+          description: config.description,
+          subject: subjectInfo?.name || 'Tất cả môn'
         }
       }
     };
@@ -214,7 +220,7 @@ export const mockAssessmentAPI = {
     
     answers.forEach(ans => {
       const questionId = ans.exercise_id || ans.question_id || ans.id;
-      const question = questionBankAI.find(q => q.id === questionId);
+      const question = allQuestions.find(q => q.id === questionId);
       
       if (question) {
         const isCorrect = question.correctAnswer === ans.answer;
@@ -750,15 +756,17 @@ export const mockChatbotAPI = {
 export const mockSubjectAPI = {
   getAll: async () => {
     await delay(300);
-    // Lấy các chủ đề từ bài học
-    const topics = [...new Set(dbBaiHoc.map(bh => bh.ChuDe))];
     
+    // Danh sách môn học chuyên ngành CNTT
     return {
       data: {
         subjects: [
-          { id: 1, name: 'AI & Machine Learning', description: 'Trí tuệ nhân tạo và Học máy', topics },
-          { id: 2, name: 'Data Science', description: 'Khoa học dữ liệu', topics: ['Data Processing'] },
-          { id: 3, name: 'Deep Learning', description: 'Học sâu và Neural Networks', topics: ['Deep Learning'] }
+          { id: 1, code: 'AI_ML', name: 'AI & Machine Learning', icon: '🤖', description: 'Trí tuệ nhân tạo và Học máy', questionCount: 15 },
+          { id: 2, code: 'PROGRAMMING', name: 'Kỹ thuật lập trình', icon: '💻', description: 'Lập trình C/C++, thuật toán cơ bản', questionCount: 30 },
+          { id: 3, code: 'DATABASE', name: 'Cơ sở dữ liệu', icon: '🗄️', description: 'SQL, thiết kế và quản lý CSDL', questionCount: 30 },
+          { id: 4, code: 'OOP', name: 'Lập trình hướng đối tượng', icon: '🎯', description: 'OOP với Java/C++, Design Patterns', questionCount: 30 },
+          { id: 5, code: 'IT_INTRO', name: 'Nhập môn CNTT', icon: '📚', description: 'Kiến thức nền tảng về CNTT', questionCount: 30 },
+          { id: 6, code: 'DATA_STRUCTURE', name: 'Cấu trúc dữ liệu', icon: '🌳', description: 'Stack, Queue, Tree, Graph, Hash', questionCount: 30 }
         ]
       }
     };

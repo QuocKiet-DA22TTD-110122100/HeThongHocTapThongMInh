@@ -10,6 +10,8 @@ import { ArrowBack, Timer, CheckCircle, Cancel, Quiz, School } from '@mui/icons-
 import { assessmentAPI } from '../services/api';
 
 function Assessment() {
+  const [subjects, setSubjects] = useState([]);
+  const [selectedSubject, setSelectedSubject] = useState(null);
   const [examTypes, setExamTypes] = useState([]);
   const [selectedExamType, setSelectedExamType] = useState(null);
   const [questions, setQuestions] = useState([]);
@@ -22,11 +24,25 @@ function Assessment() {
   const [examInfo, setExamInfo] = useState(null);
   const [timeLeft, setTimeLeft] = useState(0);
   const [showReview, setShowReview] = useState(false);
+  const [step, setStep] = useState(1); // 1: chọn môn, 2: chọn loại bài
   const navigate = useNavigate();
 
   useEffect(() => {
+    loadSubjects();
     loadExamTypes();
   }, []);
+
+  const loadSubjects = async () => {
+    try {
+      const { subjectAPI } = await import('../services/api');
+      const response = await subjectAPI.getAll();
+      if (response?.data?.subjects) {
+        setSubjects(response.data.subjects);
+      }
+    } catch (error) {
+      console.error('Error loading subjects:', error);
+    }
+  };
 
   // Timer countdown
   useEffect(() => {
@@ -73,7 +89,9 @@ function Assessment() {
     if (!selectedExamType) return;
     setLoading(true);
     try {
-      const response = await assessmentAPI.start(1, selectedExamType);
+      // Truyền subject code thay vì id
+      const subjectCode = selectedSubject?.code || null;
+      const response = await assessmentAPI.start(subjectCode, selectedExamType);
       setQuestions(response.data.questions);
       setExamInfo(response.data.examInfo);
       setTimeLeft(response.data.examInfo.timeLimit * 60); // Convert to seconds
@@ -140,46 +158,128 @@ function Assessment() {
     return 'primary';
   };
 
-  // Màn hình chọn loại bài kiểm tra
+  // Màn hình chọn môn học và loại bài kiểm tra
   if (!started) {
     return (
       <>
         <AppBar position="static">
           <Toolbar>
-            <IconButton edge="start" color="inherit" onClick={() => navigate('/dashboard')}>
+            <IconButton edge="start" color="inherit" onClick={() => step === 1 ? navigate('/dashboard') : setStep(1)}>
               <ArrowBack />
             </IconButton>
             <Quiz sx={{ mr: 1 }} />
             <Typography variant="h6" sx={{ flexGrow: 1 }}>
-              Đánh Giá Năng Lực
+              {step === 1 ? 'Chọn Môn Học' : 'Chọn Loại Bài Kiểm Tra'}
             </Typography>
           </Toolbar>
         </AppBar>
 
         <Container maxWidth="md" sx={{ mt: 4 }}>
-          <Card sx={{ mb: 3 }}>
-            <CardContent>
-              <Typography variant="h5" gutterBottom>
-                Chọn loại bài kiểm tra
-              </Typography>
-              <Typography variant="body2" color="textSecondary" paragraph>
-                Hệ thống sẽ tự động chọn câu hỏi phù hợp với loại bài kiểm tra. Điểm được tính theo thang 10.
-              </Typography>
-            </CardContent>
-          </Card>
+          {/* BƯỚC 1: Chọn môn học */}
+          {step === 1 && (
+            <>
+              <Card sx={{ mb: 3 }}>
+                <CardContent>
+                  <Typography variant="h5" gutterBottom>📚 Chọn môn học</Typography>
+                  <Typography variant="body2" color="textSecondary">
+                    Chọn môn học bạn muốn kiểm tra hoặc chọn "Tất cả môn" để làm bài tổng hợp.
+                  </Typography>
+                </CardContent>
+              </Card>
 
-          <Grid container spacing={3}>
-            {examTypes.map((exam) => (
-              <Grid item xs={12} sm={6} key={exam.id}>
-                <Card 
-                  sx={{ 
-                    cursor: 'pointer',
-                    border: selectedExamType === exam.id ? '2px solid #1976d2' : '1px solid #e0e0e0',
-                    bgcolor: selectedExamType === exam.id ? 'primary.light' : 'white',
-                    '&:hover': { boxShadow: 3 }
-                  }}
-                  onClick={() => setSelectedExamType(exam.id)}
+              <Grid container spacing={2}>
+                {/* Option: Tất cả môn */}
+                <Grid item xs={12} sm={6} md={4}>
+                  <Card 
+                    sx={{ 
+                      cursor: 'pointer',
+                      border: selectedSubject === null ? '2px solid #1976d2' : '1px solid #e0e0e0',
+                      bgcolor: selectedSubject === null ? 'primary.light' : 'white',
+                      '&:hover': { boxShadow: 3 },
+                      height: '100%'
+                    }}
+                    onClick={() => setSelectedSubject(null)}
+                  >
+                    <CardContent sx={{ textAlign: 'center' }}>
+                      <Typography variant="h3">🎯</Typography>
+                      <Typography variant="h6" color={selectedSubject === null ? 'white' : 'primary'}>
+                        Tất cả môn
+                      </Typography>
+                      <Typography variant="body2" color={selectedSubject === null ? 'white' : 'textSecondary'}>
+                        Câu hỏi tổng hợp
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+
+                {/* Danh sách môn học */}
+                {subjects.map((subject) => (
+                  <Grid item xs={12} sm={6} md={4} key={subject.id}>
+                    <Card 
+                      sx={{ 
+                        cursor: 'pointer',
+                        border: selectedSubject?.id === subject.id ? '2px solid #1976d2' : '1px solid #e0e0e0',
+                        bgcolor: selectedSubject?.id === subject.id ? 'primary.light' : 'white',
+                        '&:hover': { boxShadow: 3 },
+                        height: '100%'
+                      }}
+                      onClick={() => setSelectedSubject(subject)}
+                    >
+                      <CardContent sx={{ textAlign: 'center' }}>
+                        <Typography variant="h3">{subject.icon}</Typography>
+                        <Typography variant="h6" color={selectedSubject?.id === subject.id ? 'white' : 'primary'}>
+                          {subject.name}
+                        </Typography>
+                        <Typography variant="body2" color={selectedSubject?.id === subject.id ? 'white' : 'textSecondary'}>
+                          {subject.questionCount} câu hỏi
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+
+              <Box sx={{ mt: 4 }}>
+                <Button
+                  variant="contained"
+                  size="large"
+                  fullWidth
+                  onClick={() => setStep(2)}
                 >
+                  Tiếp tục →
+                </Button>
+              </Box>
+            </>
+          )}
+
+          {/* BƯỚC 2: Chọn loại bài kiểm tra */}
+          {step === 2 && (
+            <>
+              <Alert severity="info" sx={{ mb: 3 }}>
+                Môn học: <strong>{selectedSubject?.name || 'Tất cả môn'}</strong> {selectedSubject?.icon || '🎯'}
+              </Alert>
+
+              <Card sx={{ mb: 3 }}>
+                <CardContent>
+                  <Typography variant="h5" gutterBottom>📝 Chọn loại bài kiểm tra</Typography>
+                  <Typography variant="body2" color="textSecondary">
+                    Điểm được tính theo thang 10. Mỗi loại bài có số câu và thời gian khác nhau.
+                  </Typography>
+                </CardContent>
+              </Card>
+
+              <Grid container spacing={3}>
+                {examTypes.map((exam) => (
+                  <Grid item xs={12} sm={6} key={exam.id}>
+                    <Card 
+                      sx={{ 
+                        cursor: 'pointer',
+                        border: selectedExamType === exam.id ? '2px solid #1976d2' : '1px solid #e0e0e0',
+                        bgcolor: selectedExamType === exam.id ? 'primary.light' : 'white',
+                        '&:hover': { boxShadow: 3 }
+                      }}
+                      onClick={() => setSelectedExamType(exam.id)}
+                    >
                   <CardContent>
                     <Typography variant="h6" color={selectedExamType === exam.id ? 'white' : 'primary'}>
                       {exam.name}
@@ -207,18 +307,20 @@ function Assessment() {
             ))}
           </Grid>
 
-          <Box sx={{ mt: 4 }}>
-            <Button
-              variant="contained"
-              size="large"
-              fullWidth
-              onClick={startAssessment}
-              disabled={!selectedExamType || loading}
-              startIcon={loading ? <CircularProgress size={20} /> : <School />}
-            >
-              {loading ? 'Đang tải...' : 'Bắt đầu làm bài'}
-            </Button>
-          </Box>
+              <Box sx={{ mt: 4 }}>
+                <Button
+                  variant="contained"
+                  size="large"
+                  fullWidth
+                  onClick={startAssessment}
+                  disabled={!selectedExamType || loading}
+                  startIcon={loading ? <CircularProgress size={20} /> : <School />}
+                >
+                  {loading ? 'Đang tải...' : `Bắt đầu làm bài ${selectedSubject?.name || ''}`}
+                </Button>
+              </Box>
+            </>
+          )}
         </Container>
       </>
     );
