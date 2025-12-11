@@ -64,6 +64,7 @@ export const progressAPI = USE_MOCK ? mockProgressAPI : {
 // Exercise API
 export const exerciseAPI = USE_MOCK ? mockExerciseAPI : {
   submit: (data) => api.post('/exercises/submit', data),
+  submitAll: (data) => api.post('/exercises/submit-all', data),
 };
 
 // Analytics API

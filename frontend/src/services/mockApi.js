@@ -448,6 +448,33 @@ Học sâu là một nhánh của học máy sử dụng mạng neural nhiều l
 - Các kỹ thuật: rotation, flip, crop, noise`
     };
 
+    // Lấy 10 câu hỏi từ ngân hàng câu hỏi (thay vì chỉ từ dbCauHoi)
+    // Map bài học với môn học tương ứng
+    const lessonToSubject = {
+      1: 'AI_ML',      // Giới thiệu AI
+      2: 'AI_ML',      // Học máy  
+      3: 'AI_ML',      // Học sâu
+      4: 'AI_ML',      // Triển khai mô hình
+      5: 'AI_ML'       // Xử lý dữ liệu
+    };
+    
+    const subjectCode = lessonToSubject[baiHoc.MaBaiHoc] || 'AI_ML';
+    
+    // Lấy câu hỏi từ ngân hàng câu hỏi theo môn học
+    let exercisesFromBank = allQuestions
+      .filter(q => q.subject === subjectCode)
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 10); // Lấy 10 câu cho bài tập
+    
+    // Nếu không đủ câu, lấy thêm từ các môn khác
+    if (exercisesFromBank.length < 10) {
+      const moreQuestions = allQuestions
+        .filter(q => !exercisesFromBank.find(e => e.id === q.id))
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 10 - exercisesFromBank.length);
+      exercisesFromBank = [...exercisesFromBank, ...moreQuestions];
+    }
+
     return {
       data: {
         lesson: {
@@ -460,14 +487,21 @@ Học sâu là một nhánh của học máy sử dụng mạng neural nhiều l
           content_type: noiDung?.LoaiNoiDung,
           content_url: noiDung?.DuongDanNoiDung
         },
-        exercises: cauHoi.map(ch => ({
-          id: ch.MaCauHoi,
-          question: ch.NoiDung,
-          type: ch.LoaiCauHoi === 'Trắc nghiệm' ? 'multiple_choice' : 'essay',
-          options: ch.options || [],
-          difficulty: ch.DoKho,
-          points: ch.DoKho * 10
-        }))
+        exercises: exercisesFromBank.map((q, index) => ({
+          id: q.id,
+          question: q.question,
+          type: 'multiple_choice',
+          options: q.options || [],
+          difficulty: q.difficulty,
+          points: 1, // Mỗi câu 1 điểm, tổng 10 câu = 10 điểm
+          questionNumber: index + 1
+        })),
+        exerciseInfo: {
+          totalQuestions: exercisesFromBank.length,
+          pointPerQuestion: 1,
+          maxScore: 10,
+          timeLimit: 10 // 10 phút cho 10 câu
+        }
       }
     };
   }
@@ -542,37 +576,111 @@ export const mockProgressAPI = {
 export const mockExerciseAPI = {
   submit: async (data) => {
     await delay(500);
-    const question = dbCauHoi.find(q => q.MaCauHoi === data.exercise_id);
+    
+    // Tìm câu hỏi từ allQuestions (ngân hàng câu hỏi) trước, sau đó từ dbCauHoi
+    let question = allQuestions.find(q => q.id === data.exercise_id);
     
     let isCorrect = false;
     let explanation = '';
     let correctAnswer = '';
 
     if (question && question.correctAnswer) {
-      // So sánh trực tiếp text đáp án (frontend gửi text, correctAnswer cũng là text)
+      // So sánh trực tiếp text đáp án
       isCorrect = question.correctAnswer === data.answer;
       correctAnswer = question.correctAnswer;
       explanation = isCorrect 
         ? 'Chính xác! Bạn đã trả lời đúng. 🎉'
         : `Đáp án đúng là: ${correctAnswer}`;
-    } else if (question && !question.correctAnswer) {
-      // Câu tự luận - đánh giá dựa trên độ dài câu trả lời
-      const answerLength = (data.answer || '').length;
-      isCorrect = answerLength > 20; // Câu trả lời cần ít nhất 20 ký tự
-      explanation = isCorrect 
-        ? 'Câu trả lời của bạn khá tốt! 👍'
-        : 'Câu trả lời cần bổ sung thêm chi tiết.';
     } else {
-      // Không tìm thấy câu hỏi
-      explanation = 'Không tìm thấy câu hỏi trong hệ thống.';
+      // Tìm trong dbCauHoi (câu hỏi cũ)
+      const oldQuestion = dbCauHoi.find(q => q.MaCauHoi === data.exercise_id);
+      if (oldQuestion && oldQuestion.correctAnswer) {
+        isCorrect = oldQuestion.correctAnswer === data.answer;
+        correctAnswer = oldQuestion.correctAnswer;
+        explanation = isCorrect 
+          ? 'Chính xác! Bạn đã trả lời đúng. 🎉'
+          : `Đáp án đúng là: ${correctAnswer}`;
+      } else if (oldQuestion && !oldQuestion.correctAnswer) {
+        // Câu tự luận
+        const answerLength = (data.answer || '').length;
+        isCorrect = answerLength > 20;
+        explanation = isCorrect 
+          ? 'Câu trả lời của bạn khá tốt! 👍'
+          : 'Câu trả lời cần bổ sung thêm chi tiết.';
+      } else {
+        explanation = 'Không tìm thấy câu hỏi trong hệ thống.';
+      }
     }
 
     return {
       data: {
         is_correct: isCorrect,
-        score: isCorrect ? (question?.DoKho || 1) * 10 : 0,
+        score: isCorrect ? 1 : 0, // Mỗi câu 1 điểm
         explanation,
         correct_answer: correctAnswer
+      }
+    };
+  },
+
+  // Nộp nhiều câu hỏi cùng lúc (cho LessonDetail)
+  submitAll: async (data) => {
+    await delay(800);
+    
+    const answers = data.answers || [];
+    let correctCount = 0;
+    let wrongCount = 0;
+    const detailedResults = [];
+    
+    answers.forEach(ans => {
+      const questionId = ans.exercise_id || ans.question_id || ans.id;
+      const question = allQuestions.find(q => q.id === questionId);
+      
+      if (question) {
+        const isCorrect = question.correctAnswer === ans.answer;
+        
+        if (isCorrect) {
+          correctCount++;
+        } else {
+          wrongCount++;
+        }
+        
+        detailedResults.push({
+          questionId: question.id,
+          question: question.question,
+          yourAnswer: ans.answer,
+          correctAnswer: question.correctAnswer,
+          isCorrect,
+          topic: question.topic,
+          difficulty: question.difficulty
+        });
+      }
+    });
+    
+    // Tính điểm theo thang 10
+    const totalQuestions = answers.length || 10;
+    const score = Math.round((correctCount / totalQuestions) * 10 * 10) / 10;
+    
+    // Xếp loại
+    let grade = 'Yếu';
+    let gradeColor = 'error';
+    let gradeEmoji = '😢';
+    
+    if (score >= 9) { grade = 'Xuất sắc'; gradeColor = 'success'; gradeEmoji = '🏆'; }
+    else if (score >= 8) { grade = 'Giỏi'; gradeColor = 'success'; gradeEmoji = '🌟'; }
+    else if (score >= 6.5) { grade = 'Khá'; gradeColor = 'info'; gradeEmoji = '👍'; }
+    else if (score >= 5) { grade = 'Trung bình'; gradeColor = 'warning'; gradeEmoji = '📚'; }
+
+    return {
+      data: {
+        score,
+        maxScore: 10,
+        correctCount,
+        wrongCount,
+        totalQuestions,
+        grade,
+        gradeColor,
+        gradeEmoji,
+        detailedResults
       }
     };
   }
